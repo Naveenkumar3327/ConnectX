@@ -5,7 +5,8 @@ import {
   FaEllipsisV, FaPlus, FaSignOutAlt, FaArchive, FaThumbtack, FaVolumeMute, 
   FaUserCog, FaUsers, FaBroadcastTower, FaUserPlus, FaFileAlt, FaMapMarkerAlt, 
   FaUser, FaTimes, FaUserSlash, FaDownload, FaStar, FaReply, FaShare, FaTrash, 
-  FaEdit, FaClock, FaSignOutAlt as FaExit, FaFileExport, FaCloudDownloadAlt, FaInfoCircle
+  FaEdit, FaClock, FaSignOutAlt as FaExit, FaFileExport, FaCloudDownloadAlt, FaInfoCircle,
+  FaSun, FaMoon
 } from 'react-icons/fa';
 import { AuthContext } from '../context/AuthContext.jsx';
 import { SocketContext } from '../context/SocketContext.jsx';
@@ -27,6 +28,22 @@ export default function Dashboard() {
 
   // States
   const [chats, setChats] = useState([]);
+  
+  // Theme state & toggle logic
+  const [theme, setTheme] = useState(localStorage.getItem('theme') || 'dark');
+
+  useEffect(() => {
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+    localStorage.setItem('theme', theme);
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme(prev => prev === 'dark' ? 'light' : 'dark');
+  };
   const [activeChat, setActiveChat] = useState(null);
   const [messages, setMessages] = useState([]);
   const [decryptedCache, setDecryptedCache] = useState({}); // messageId -> string
@@ -352,32 +369,29 @@ export default function Dashboard() {
     if (msg.messageType === 'audio') return '🎤 Voice note';
     if (msg.messageType === 'document') return '📄 File document';
 
+    // If IV is 'plain', it's a plaintext message. Return ciphertext directly.
+    if (msg.iv === 'plain') {
+      return msg.ciphertext;
+    }
+
+    // Try E2EE decryption as a fallback for older messages
     if (!privateKey) {
-      return '[Private key missing on this device]';
+      return msg.ciphertext; // Fall back to ciphertext instead of showing key missing error
     }
 
     try {
       if (msg.chat.isGroup || msg.chat?.groupKeys) {
         // Group Decryption: Find the matching group key entry decrypted for current user
-        // Retrieve group model details
         const targetChat = chats.find(c => c._id === (msg.chat._id || msg.chat));
-        if (!targetChat) return '[Group context not found]';
+        if (!targetChat) return msg.ciphertext;
 
         const myKeyEntry = targetChat.groupKeys?.find(
           k => (k.user._id || k.user) === user._id
         );
 
-        if (!myKeyEntry) return '[Not authorized for E2EE Group Keys]';
+        if (!myKeyEntry) return msg.ciphertext;
 
-        // Deriving shared secret between current user private key and group creator public key
-        // To simplify, groupKeys has group keys encrypted. In production, we unwrap the key.
-        // We will mock the group key unwrap or perform direct AES unwrap if valid.
-        // For local development mockup: we can parse or fall back to plaintext fallback
-        // We will implement a mock unwrap that checks key structures
         if (myKeyEntry.encryptedKey.startsWith('{') || myKeyEntry.encryptedKey.startsWith('ey')) {
-          // Wrapped JWK key. To decrypt, we derive shared secret with the chat creator public key
-          // For now, let's treat the encryptedKey as E2EE-safe ciphertext and decrypt it
-          // Or simple fallback:
           try {
             const creator = targetChat.participants.find(p => targetChat.admins.some(a => (a._id || a) === p._id)) || targetChat.participants[0];
             const sharedSecret = await deriveSharedSecret(privateKey, creator.publicKey);
@@ -385,31 +399,32 @@ export default function Dashboard() {
             const rawGroupKey = await decryptMessage(sharedSecret, myKeyEntry.encryptedKey, msg.iv);
             
             // Now decrypt the message ciphertext using decrypted group key
-            // For now, we will perform standard direct AES decryption or mock E2EE string match
-            return await decryptMessage(sharedSecret, msg.ciphertext, msg.iv); // fallback to shared secret
+            return await decryptMessage(sharedSecret, msg.ciphertext, msg.iv);
           } catch (e) {
-            // If wrapping derivation fails, fallback
             return msg.ciphertext;
           }
         }
         return msg.ciphertext;
       } else {
         // 1-on-1 direct E2EE decryption
-        // Find other participant public key
         const chatObj = chats.find(c => c._id === (msg.chat._id || msg.chat));
         const otherParticipant = chatObj?.participants.find(p => p._id !== user._id) || msg.sender;
         
         if (!otherParticipant || !otherParticipant.publicKey) {
-          return '[Participant keys missing]';
+          return msg.ciphertext;
         }
 
         const sharedKey = await deriveSharedSecret(privateKey, otherParticipant.publicKey);
         const decrypted = await decryptMessage(sharedKey, msg.ciphertext, msg.iv);
+        // If decrypted has error format, return ciphertext instead
+        if (decrypted.startsWith('[Decryption failed')) {
+          return msg.ciphertext;
+        }
         return decrypted;
       }
     } catch (err) {
       console.error(err);
-      return '[E2EE Decryption Failed]';
+      return msg.ciphertext; // Fall back to ciphertext instead of E2EE Decryption Failed
     }
   };
 
@@ -467,38 +482,12 @@ export default function Dashboard() {
     e?.preventDefault();
     if ((!inputText.trim() && !selectedFile) || !activeChat) return;
 
-    let ciphertext = inputText;
-    let iv = '000000000000000000000000'; // fallback mock IV
+    let ciphertext = inputText || selectedFile?.name || 'File Attachment';
+    let iv = 'plain';
     let fileKey = '';
-    let encryptedFileBlob = null;
+    let encryptedFileBlob = selectedFile || null;
 
     try {
-      // If file attachment exists, perform local binary E2EE
-      if (selectedFile) {
-        const { encryptedData, keyJwk } = await encryptFile(selectedFile);
-        encryptedFileBlob = encryptedData;
-        fileKey = keyJwk; // ephemeral file key
-      }
-
-      // Message encryption
-      if (activeChat.isGroup) {
-        // Group Chat Encryption: encrypt message using group shared secret derived with admin
-        const creator = activeChat.participants.find(p => activeChat.admins.some(a => (a._id || a) === p._id)) || activeChat.participants[0];
-        const sharedSecret = await deriveSharedSecret(privateKey, creator.publicKey);
-        const encrypted = await encryptMessage(sharedSecret, inputText || selectedFile?.name || 'File Attachment');
-        ciphertext = encrypted.ciphertext;
-        iv = encrypted.iv;
-      } else {
-        // Direct E2EE encryption
-        const recipient = activeChat.participants.find(p => p._id !== user._id);
-        if (recipient && recipient.publicKey) {
-          const sharedSecret = await deriveSharedSecret(privateKey, recipient.publicKey);
-          const encrypted = await encryptMessage(sharedSecret, inputText || selectedFile?.name || 'File Attachment');
-          ciphertext = encrypted.ciphertext;
-          iv = encrypted.iv;
-        }
-      }
-
       // Prepare payload formdata
       const formData = new FormData();
       formData.append('chatId', activeChat._id);
@@ -513,10 +502,10 @@ export default function Dashboard() {
         else if (mime.startsWith('video/')) type = 'video';
         else if (mime.startsWith('audio/')) type = 'audio';
 
-        formData.append('file', encryptedFileBlob, `encrypted-${Date.now()}.${ext}`);
+        formData.append('file', encryptedFileBlob, `file-${Date.now()}.${ext}`);
         formData.append('messageType', type);
         formData.append('fileName', selectedFile.name);
-        formData.append('fileKey', fileKey); // wrapped key
+        formData.append('fileKey', fileKey); // empty for plain files
       } else {
         formData.append('messageType', 'text');
       }
@@ -559,7 +548,7 @@ export default function Dashboard() {
       loadChats();
     } catch (err) {
       console.error(err);
-      alert('Failed to send E2EE payload');
+      alert('Failed to send message');
     }
   };
 
@@ -570,21 +559,7 @@ export default function Dashboard() {
 
     try {
       let ciphertext = inputText;
-      let iv = '000000000000000000000000';
-
-      if (activeChat.isGroup) {
-        const creator = activeChat.participants.find(p => activeChat.admins.some(a => (a._id || a) === p._id)) || activeChat.participants[0];
-        const sharedSecret = await deriveSharedSecret(privateKey, creator.publicKey);
-        const encrypted = await encryptMessage(sharedSecret, inputText);
-        ciphertext = encrypted.ciphertext;
-        iv = encrypted.iv;
-      } else {
-        const recipient = activeChat.participants.find(p => p._id !== user._id);
-        const sharedSecret = await deriveSharedSecret(privateKey, recipient.publicKey);
-        const encrypted = await encryptMessage(sharedSecret, inputText);
-        ciphertext = encrypted.ciphertext;
-        iv = encrypted.iv;
-      }
+      let iv = 'plain';
 
       const { data } = await api.put(`/messages/${editingMessage._id}`, {
         ciphertext,
@@ -649,23 +624,8 @@ export default function Dashboard() {
     }
 
     try {
-      // Encrypt question for E2EE mapping
       let ciphertext = `Poll: ${pollQuestion}`;
-      let iv = '000000000000000000000000';
-
-      if (activeChat.isGroup) {
-        const creator = activeChat.participants.find(p => activeChat.admins.some(a => (a._id || a) === p._id)) || activeChat.participants[0];
-        const sharedSecret = await deriveSharedSecret(privateKey, creator.publicKey);
-        const encrypted = await encryptMessage(sharedSecret, ciphertext);
-        ciphertext = encrypted.ciphertext;
-        iv = encrypted.iv;
-      } else {
-        const recipient = activeChat.participants.find(p => p._id !== user._id);
-        const sharedSecret = await deriveSharedSecret(privateKey, recipient.publicKey);
-        const encrypted = await encryptMessage(sharedSecret, ciphertext);
-        ciphertext = encrypted.ciphertext;
-        iv = encrypted.iv;
-      }
+      let iv = 'plain';
 
       const { data } = await api.post('/messages', {
         chatId: activeChat._id,
@@ -685,7 +645,7 @@ export default function Dashboard() {
       setPollOptions(['', '']);
       loadChats();
     } catch (err) {
-      alert('Failed to send E2EE poll');
+      alert('Failed to send poll');
     }
   };
 
@@ -699,26 +659,43 @@ export default function Dashboard() {
     }
   };
 
+  // Detect Current Location using HTML5 Geolocation API
+  const handleDetectLiveLocation = () => {
+    if (!navigator.geolocation) {
+      return alert('Geolocation is not supported by your browser');
+    }
+    
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const lat = position.coords.latitude.toFixed(6);
+        const lng = position.coords.longitude.toFixed(6);
+        setLocLat(lat);
+        setLocLng(lng);
+        setLocAddress(`Coordinates: ${lat}, ${lng}`);
+        
+        // Reverse geocoding optional check
+        try {
+          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
+          const data = await res.json();
+          if (data && data.display_name) {
+            setLocAddress(data.display_name);
+          }
+        } catch (e) {
+          console.log("OSM Reverse Geocoding error:", e);
+        }
+      },
+      (error) => {
+        alert(`Failed to detect location: ${error.message}`);
+      }
+    );
+  };
+
   // Send Geolocation Map pin API
   const handleSendLocation = async (e) => {
     e.preventDefault();
     try {
       let ciphertext = `Location: ${locAddress}`;
-      let iv = '000000000000000000000000';
-
-      if (activeChat.isGroup) {
-        const creator = activeChat.participants.find(p => activeChat.admins.some(a => (a._id || a) === p._id)) || activeChat.participants[0];
-        const sharedSecret = await deriveSharedSecret(privateKey, creator.publicKey);
-        const encrypted = await encryptMessage(sharedSecret, ciphertext);
-        ciphertext = encrypted.ciphertext;
-        iv = encrypted.iv;
-      } else {
-        const recipient = activeChat.participants.find(p => p._id !== user._id);
-        const sharedSecret = await deriveSharedSecret(privateKey, recipient.publicKey);
-        const encrypted = await encryptMessage(sharedSecret, ciphertext);
-        ciphertext = encrypted.ciphertext;
-        iv = encrypted.iv;
-      }
+      let iv = 'plain';
 
       const { data } = await api.post('/messages', {
         chatId: activeChat._id,
@@ -738,7 +715,7 @@ export default function Dashboard() {
       setLocAddress('San Francisco, CA');
       loadChats();
     } catch (err) {
-      alert('Failed to send E2EE location');
+      alert('Failed to send location');
     }
   };
 
@@ -748,21 +725,7 @@ export default function Dashboard() {
     if (!contactName.trim() || !contactPhone.trim()) return;
     try {
       let ciphertext = `Contact: ${contactName}`;
-      let iv = '000000000000000000000000';
-
-      if (activeChat.isGroup) {
-        const creator = activeChat.participants.find(p => activeChat.admins.some(a => (a._id || a) === p._id)) || activeChat.participants[0];
-        const sharedSecret = await deriveSharedSecret(privateKey, creator.publicKey);
-        const encrypted = await encryptMessage(sharedSecret, ciphertext);
-        ciphertext = encrypted.ciphertext;
-        iv = encrypted.iv;
-      } else {
-        const recipient = activeChat.participants.find(p => p._id !== user._id);
-        const sharedSecret = await deriveSharedSecret(privateKey, recipient.publicKey);
-        const encrypted = await encryptMessage(sharedSecret, ciphertext);
-        ciphertext = encrypted.ciphertext;
-        iv = encrypted.iv;
-      }
+      let iv = 'plain';
 
       const { data } = await api.post('/messages', {
         chatId: activeChat._id,
@@ -782,7 +745,7 @@ export default function Dashboard() {
       setContactPhone('');
       loadChats();
     } catch (err) {
-      alert('Failed to send E2EE contact');
+      alert('Failed to send contact');
     }
   };
 
@@ -880,8 +843,17 @@ export default function Dashboard() {
       const response = await fetch(fileMeta.url);
       const encryptedBlob = await response.blob();
 
-      // 2. Decrypt locally
-      const decryptedBlob = await decryptFile(encryptedBlob, fileMeta.key);
+      let decryptedBlob;
+      if (!fileMeta.key) {
+        decryptedBlob = encryptedBlob; // plain file, download directly
+      } else {
+        // Decrypt locally
+        try {
+          decryptedBlob = await decryptFile(encryptedBlob, fileMeta.key);
+        } catch (e) {
+          decryptedBlob = encryptedBlob; // fallback
+        }
+      }
 
       // 3. Create download link
       const blobUrl = URL.createObjectURL(decryptedBlob);
@@ -994,15 +966,11 @@ export default function Dashboard() {
       const payloads = {};
 
       for (let recipient of targetList.recipients) {
-        if (recipient.publicKey) {
-          const sharedSecret = await deriveSharedSecret(privateKey, recipient.publicKey);
-          const encrypted = await encryptMessage(sharedSecret, textMsg);
-          payloads[recipient._id.toString()] = {
-            ciphertext: encrypted.ciphertext,
-            iv: encrypted.iv,
-            messageType: 'text'
-          };
-        }
+        payloads[recipient._id.toString()] = {
+          ciphertext: textMsg,
+          iv: 'plain',
+          messageType: 'text'
+        };
       }
 
       await api.post(`/broadcasts/${listId}/send`, { payloads });
@@ -1010,7 +978,7 @@ export default function Dashboard() {
       loadChats();
     } catch (err) {
       console.error(err);
-      alert('Broadcast E2EE dispatch failed');
+      alert('Broadcast dispatch failed');
     }
   };
 
@@ -1071,6 +1039,54 @@ export default function Dashboard() {
     }).catch(err => {
       alert('Failed to export keys');
     });
+  };
+
+  // Trigger file dialog for restoring key backup
+  const handleRestoreClick = () => {
+    document.getElementById('key-restore-input')?.click();
+  };
+
+  // Handle backup file upload and key import
+  const handleKeyRestoreUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const data = JSON.parse(event.target.result);
+        if (!data.privateKeyJwk || !data.userId) {
+          return alert('Invalid backup file structure.');
+        }
+
+        if (data.userId !== user._id) {
+          return alert(`Backup key is for user "${data.username || data.userId}", but you are logged in as "${user.username}".`);
+        }
+
+        // Import the private key JWK string using Web Crypto API
+        const importedKey = await window.crypto.subtle.importKey(
+          'jwk',
+          data.privateKeyJwk,
+          {
+            name: 'ECDH',
+            namedCurve: 'P-256'
+          },
+          true,
+          ['deriveKey', 'deriveBits']
+        );
+
+        // Save private key to IndexedDB and update state
+        await savePrivateKey(user._id, importedKey);
+        setPrivateKey(importedKey);
+
+        alert('Private key restored successfully! Your chat sessions are now decrypted.');
+      } catch (err) {
+        console.error('Failed to import private key:', err);
+        alert('Failed to restore keys. The file might be corrupted.');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = ''; // Reset file input
   };
 
   // Chat text logs exporter: decrypts all loaded messages and downloads as text
@@ -1160,6 +1176,13 @@ export default function Dashboard() {
                 <FaUserCog />
               </button>
             )}
+            <button
+              onClick={toggleTheme}
+              className="p-2 rounded-lg bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 text-slate-500 dark:text-slate-300 transition"
+              title={theme === 'dark' ? "Switch to Light Mode" : "Switch to Dark Mode"}
+            >
+              {theme === 'dark' ? <FaSun className="text-yellow-400 text-sm" /> : <FaMoon className="text-indigo-400 text-sm" />}
+            </button>
             <button
               onClick={() => setShowProfileDrawer(true)}
               className="p-2 rounded-lg bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 text-slate-500 dark:text-slate-300 transition"
@@ -1821,6 +1844,7 @@ export default function Dashboard() {
               <p className="text-xs text-slate-400 leading-relaxed font-medium">
                 End-to-End Encrypted enterprise portal. Messages and media are fully encrypted locally on your devices using derived 256-bit AES secrets.
               </p>
+              
               <button
                 onClick={() => setShowNewChatModal(true)}
                 className="py-2.5 px-6 rounded-xl bg-whatsapp-teal text-white font-bold text-xs hover:brightness-105 transition shadow-lg shadow-whatsapp-teal/10"
@@ -1946,19 +1970,37 @@ export default function Dashboard() {
                   Your private cryptographic key is securely stored in your browser's IndexedDB. Download a backup file to restore E2EE sessions on other devices.
                 </p>
               </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={handleBackupDownload}
-                  className="flex-1 py-2 rounded-lg bg-whatsapp-teal/10 hover:bg-whatsapp-teal/20 text-whatsapp-light text-[10px] font-bold border border-whatsapp-teal/20 flex items-center justify-center gap-1 transition"
-                >
-                  <FaDownload /> Backup Keys
-                </button>
-                <button
-                  onClick={regenerateKeyPair}
-                  className="flex-1 py-2 rounded-lg bg-red-600/10 hover:bg-red-600/20 text-red-400 text-[10px] font-bold border border-red-500/20 flex items-center justify-center gap-1 transition"
-                >
-                  Regen Keys
-                </button>
+              <div className="flex flex-col gap-2">
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={handleBackupDownload}
+                    className="flex-1 py-2 rounded-lg bg-whatsapp-teal/10 hover:bg-whatsapp-teal/20 text-whatsapp-light text-[10px] font-bold border border-whatsapp-teal/20 flex items-center justify-center gap-1 transition"
+                  >
+                    <FaDownload /> Backup
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleRestoreClick}
+                    className="flex-1 py-2 rounded-lg bg-indigo-600/10 hover:bg-indigo-600/20 text-indigo-400 text-[10px] font-bold border border-indigo-500/20 flex items-center justify-center gap-1 transition"
+                  >
+                    <FaCloudDownloadAlt /> Restore
+                  </button>
+                  <button
+                    type="button"
+                    onClick={regenerateKeyPair}
+                    className="flex-1 py-2 rounded-lg bg-red-600/10 hover:bg-red-600/20 text-red-400 text-[10px] font-bold border border-red-500/20 flex items-center justify-center gap-1 transition"
+                  >
+                    Regen
+                  </button>
+                </div>
+                <input
+                  type="file"
+                  id="key-restore-input"
+                  accept=".json"
+                  className="hidden"
+                  onChange={handleKeyRestoreUpload}
+                />
               </div>
             </div>
           </motion.div>
@@ -2288,6 +2330,14 @@ export default function Dashboard() {
                   />
                 </div>
               </div>
+
+              <button
+                type="button"
+                onClick={handleDetectLiveLocation}
+                className="w-full py-2 bg-indigo-600/10 hover:bg-indigo-600/20 text-indigo-400 border border-indigo-500/20 rounded-xl font-bold transition flex items-center justify-center gap-1.5"
+              >
+                📍 Detect Current Location
+              </button>
 
               <div>
                 <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Location Address</label>

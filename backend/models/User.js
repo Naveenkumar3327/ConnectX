@@ -48,6 +48,15 @@ const userSchema = new mongoose.Schema(
       type: String,
       required: true, // Stores the client's public key (ECDH P-256) for E2EE
     },
+    encryptedPrivateKey: {
+      type: String, // Client-encrypted private key (AES-GCM base64)
+    },
+    ivPrivateKey: {
+      type: String, // Initialization vector for encrypted private key
+    },
+    saltPrivateKey: {
+      type: String, // Salt used for PBKDF2 derivation
+    },
     privacy: {
       lastSeen: {
         type: String,

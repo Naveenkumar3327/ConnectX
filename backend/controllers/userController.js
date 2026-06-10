@@ -28,7 +28,7 @@ export const updateUserProfile = async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    const { fullName, bio, status, username } = req.body;
+    const { fullName, bio, status, username, publicKey, encryptedPrivateKey, ivPrivateKey, saltPrivateKey } = req.body;
 
     if (username && username.toLowerCase() !== user.username) {
       const usernameExists = await User.findOne({ username: username.toLowerCase() });
@@ -41,6 +41,10 @@ export const updateUserProfile = async (req, res) => {
     if (fullName) user.fullName = fullName;
     if (bio !== undefined) user.bio = bio;
     if (status) user.status = status;
+    if (publicKey) user.publicKey = publicKey;
+    if (encryptedPrivateKey) user.encryptedPrivateKey = encryptedPrivateKey;
+    if (ivPrivateKey) user.ivPrivateKey = ivPrivateKey;
+    if (saltPrivateKey) user.saltPrivateKey = saltPrivateKey;
 
     if (req.file) {
       // Process avatar upload
@@ -75,6 +79,9 @@ export const updateUserProfile = async (req, res) => {
       bio: updatedUser.bio,
       status: updatedUser.status,
       publicKey: updatedUser.publicKey,
+      encryptedPrivateKey: updatedUser.encryptedPrivateKey,
+      ivPrivateKey: updatedUser.ivPrivateKey,
+      saltPrivateKey: updatedUser.saltPrivateKey,
       privacy: updatedUser.privacy,
     });
   } catch (error) {

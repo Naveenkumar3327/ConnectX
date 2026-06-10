@@ -32,7 +32,7 @@ const sendRefreshToken = (res, token) => {
 // @route   POST /api/auth/signup
 // @access  Public
 export const registerUser = async (req, res) => {
-  const { fullName, username, email, password, publicKey } = req.body;
+  const { fullName, username, email, password, publicKey, encryptedPrivateKey, ivPrivateKey, saltPrivateKey } = req.body;
 
   try {
     if (!fullName || !username || !email || !password || !publicKey) {
@@ -78,6 +78,9 @@ export const registerUser = async (req, res) => {
       email: email.toLowerCase(),
       password,
       publicKey,
+      encryptedPrivateKey,
+      ivPrivateKey,
+      saltPrivateKey,
       profilePicture: profilePictureUrl,
     });
 
@@ -97,6 +100,9 @@ export const registerUser = async (req, res) => {
       profilePicture: user.profilePicture,
       bio: user.bio,
       publicKey: user.publicKey,
+      encryptedPrivateKey: user.encryptedPrivateKey,
+      ivPrivateKey: user.ivPrivateKey,
+      saltPrivateKey: user.saltPrivateKey,
       isAdmin: user.isAdmin,
       token: accessToken,
     });
@@ -154,6 +160,9 @@ export const authUser = async (req, res) => {
       profilePicture: user.profilePicture,
       bio: user.bio,
       publicKey: user.publicKey,
+      encryptedPrivateKey: user.encryptedPrivateKey,
+      ivPrivateKey: user.ivPrivateKey,
+      saltPrivateKey: user.saltPrivateKey,
       isAdmin: user.isAdmin,
       token: accessToken,
     });
