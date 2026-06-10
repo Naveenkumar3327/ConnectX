@@ -1,0 +1,31 @@
+# Dependency directories
+node_modules/
+backend/node_modules/
+frontend/node_modules/
+
+# Build outputs
+frontend/dist/
+frontend/dist-ssr/
+
+# Local env files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+backend/.env
+frontend/.env
+
+# User uploads / temp files
+backend/uploads/*
+!backend/uploads/.gitkeep
+
+# IDE / System files
+.vscode/
+.idea/
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

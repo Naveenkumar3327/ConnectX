@@ -1,0 +1,78 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply m-0 p-0 font-sans overflow-hidden bg-slate-100 text-slate-900 transition-colors duration-200;
+  }
+  body.dark {
+    @apply bg-dark-bg text-dark-text;
+  }
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(134, 150, 160, 0.3);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(134, 150, 160, 0.5);
+}
+
+/* Glassmorphism Presets */
+.glassmorphism {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+.dark .glassmorphism {
+  background: rgba(17, 27, 33, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* Custom Chat Background Pattern (SVG Overlay) */
+.chat-wallpaper {
+  background-color: #efeae2;
+  background-image: radial-gradient(rgba(0, 0, 0, 0.03) 1px, transparent 0),
+                    radial-gradient(rgba(0, 0, 0, 0.03) 1px, transparent 0);
+  background-size: 20px 20px;
+  background-position: 0 0, 10px 10px;
+}
+
+.dark .chat-wallpaper {
+  background-color: #0b141a;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.015) 1px, transparent 0),
+                    radial-gradient(rgba(255, 255, 255, 0.015) 1px, transparent 0);
+  background-size: 20px 20px;
+  background-position: 0 0, 10px 10px;
+}
+
+/* Audio Player Waveform Animation */
+@keyframes wave {
+  0%, 100% {
+    transform: scaleY(0.3);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+.wave-bar {
+  animation: wave 1.2s ease-in-out infinite;
+}
+.wave-bar:nth-child(2) { animation-delay: 0.2s; }
+.wave-bar:nth-child(3) { animation-delay: 0.4s; }
+.wave-bar:nth-child(4) { animation-delay: 0.6s; }
+.wave-bar:nth-child(5) { animation-delay: 0.8s; }
